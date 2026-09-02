@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book an Appointment</title>
+  <style>
+    body{font-family:Arial,sans-serif;max-width:850px;margin:40px auto;padding:0 18px}
+    .card{border:1px solid #ddd;border-radius:12px;padding:18px;margin:14px 0}
+    button{padding:10px 14px;border:0;border-radius:8px;cursor:pointer}
+    input,select{padding:9px;margin:5px 0;width:100%;box-sizing:border-box}
+    .slot{display:inline-block;margin:6px;padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:white}
+    .slot:hover{background:#eee}
+    #message{margin-top:15px;font-weight:bold}
+  </style>
+</head>
+<body>
+<h1>Book an Appointment</h1>
+
+<div class="card">
+  <label>Staff</label>
+  <select id="staff"></select>
+  <label>Date</label>
+  <input id="date" type="date">
+  <button onclick="loadSlots()">Show Available Times</button>
+</div>
+
+<div class="card">
+  <h2>Available times</h2>
+  <div id="slots">Choose a date.</div>
+</div>
+
+<div class="card" id="booking" style="display:none">
+  <h2>Book selected time</h2>
+  <div id="selected"></div>
+  <input id="name" placeholder="Your name">
+  <input id="phone" placeholder="Phone number">
+  <button onclick="book()">Confirm Booking</button>
+</div>
+
+<div id="message"></div>
+
+<script>
+let selectedSlot=null, selectedStaff=null;
+
+async function loadStaff(){
+  const res=await fetch('/api/staff');
+  const data=await res.json();
+  const s=document.getElementById('staff');
+  s.innerHTML=data.map(x=>`<option value="${x.id}">${escapeHtml(x.displayName)}</option>`).join('');
+}
+async function loadSlots(){
+  selectedStaff=document.getElementById('staff').value;
+  const date=document.getElementById('date').value;
+  if(!date)return;
+  const res=await fetch(`/api/staff/${selectedStaff}/slots?date=${date}`);
+  const data=await res.json();
+  const box=document.getElementById('slots');
+  box.innerHTML=data.length ? data.map(x=>`<button class="slot" onclick='selectSlot(${JSON.stringify(x)})'>${x.startTime.slice(0,5)} - ${x.endTime.slice(0,5)}</button>`).join('') : 'No open slots.';
+}
+function selectSlot(slot){
+  selectedSlot=slot;
+  document.getElementById('booking').style.display='block';
+  document.getElementById('selected').textContent=`Selected: ${slot.startTime.slice(0,5)} - ${slot.endTime.slice(0,5)}`;
+}
+async function book(){
+  const body={
+    slotId:selectedSlot.id,
+    customerName:document.getElementById('name').value.trim(),
+    customerPhone:document.getElementById('phone').value.trim()
+  };
+  const res=await fetch('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const text=await res.text();
+  document.getElementById('message').textContent=res.ok?'Booking confirmed!':'Booking failed: '+text;
+  if(res.ok){document.getElementById('booking').style.display='none';loadSlots();}
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+loadStaff();
+document.getElementById('date').value=new Date().toISOString().slice(0,10);
+</script>
+</body>
+</html>

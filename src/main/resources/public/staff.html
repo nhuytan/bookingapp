@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staff</title>
+<style>body{font-family:Arial;max-width:850px;margin:35px auto;padding:0 18px}.card{border:1px solid #ddd;border-radius:12px;padding:18px;margin:12px 0}input,button{padding:9px;margin:4px}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd}</style>
+</head>
+<body>
+<h1>Staff Schedule</h1>
+<div class="card">
+<input id="user" placeholder="Username">
+<input id="pass" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+<div id="msg"></div>
+</div>
+<div id="app" style="display:none">
+<div class="card"><h2>Add slot</h2>
+<input id="date" type="date"><input id="start" type="time"><input id="end" type="time">
+<button onclick="addSlot()">Add</button></div>
+<div class="card"><h2>My slots</h2><div id="slots"></div></div>
+</div>
+<script>
+let auth='';
+async function login(){
+  auth='Basic '+btoa(document.getElementById('user').value+':'+document.getElementById('pass').value);
+  const r=await fetch('/api/staff/me',{headers:{Authorization:auth}});
+  if(!r.ok){document.getElementById('msg').textContent='Login failed';return;}
+  document.getElementById('msg').textContent='Logged in';
+  document.getElementById('app').style.display='block';
+  document.getElementById('date').value=new Date().toISOString().slice(0,10);
+  loadSlots();
+}
+async function addSlot(){
+  const body={slotDate:document.getElementById('date').value,startTime:document.getElementById('start').value,endTime:document.getElementById('end').value};
+  const r=await fetch('/api/staff/slots',{method:'POST',headers:{Authorization:auth,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  document.getElementById('msg').textContent=await r.text();
+  loadSlots();
+}
+async function loadSlots(){
+  const r=await fetch('/api/staff/me/slots?date='+document.getElementById('date').value,{headers:{Authorization:auth}});
+  const d=await r.json();
+  document.getElementById('slots').innerHTML='<table><tr><th>Time</th><th>Status</th><th>Customer</th><th></th></tr>'+
+    d.map(x=>`<tr><td>${x.startTime.slice(0,5)}-${x.endTime.slice(0,5)}</td><td>${x.status}</td><td>${x.customerName||''}</td><td>${x.status==='open'?`<button onclick="removeSlot(${x.id})">Remove</button>`:`<button onclick="cancelBooking(${x.id})">Cancel</button>`}</td></tr>`).join('')+'</table>';
+}
+async function removeSlot(id){await fetch('/api/staff/slots/'+id,{method:'DELETE',headers:{Authorization:auth}});loadSlots();}
+async function cancelBooking(id){await fetch('/api/staff/bookings/'+id+'/cancel',{method:'POST',headers:{Authorization:auth}});loadSlots();}
+</script>
+</body></html>
