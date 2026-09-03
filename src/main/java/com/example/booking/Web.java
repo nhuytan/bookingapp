@@ -16,6 +16,10 @@ public class Web {
     @Produces(MediaType.TEXT_HTML)
     public Response staff(){ return page("/public/staff.html"); }
 
+    @GET @Path("admin")
+    @Produces(MediaType.TEXT_HTML)
+    public Response admin(){ return page("/public/admin.html"); }
+
     private Response page(String path){
         try(InputStream in=Web.class.getResourceAsStream(path)){
             if(in==null)return Response.status(404).build();
