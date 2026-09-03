@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin</title>
+<style>
+body{font-family:Arial;max-width:950px;margin:35px auto;padding:0 18px}
+.card{border:1px solid #ddd;border-radius:12px;padding:18px;margin:12px 0}
+input,button,select{padding:9px;margin:4px}
+table{width:100%;border-collapse:collapse}
+td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}
+.pill{padding:2px 8px;border-radius:10px;font-size:12px}
+.pill-yes{background:#e6f7e6;color:#0a0}
+.pill-no{background:#f2f2f2;color:#888}
+#msg{font-weight:bold;margin:8px 0}
+.row-edit input{width:100%;box-sizing:border-box}
+</style>
+</head>
+<body>
+<h1>Admin — Manage Staff</h1>
+<div class="card">
+<input id="user" placeholder="Username">
+<input id="pass" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+<div id="msg"></div>
+</div>
+
+<div id="app" style="display:none">
+  <div class="card">
+    <h2>Add staff</h2>
+    <input id="newUsername" placeholder="Username">
+    <input id="newPassword" type="password" placeholder="Password">
+    <input id="newDisplayName" placeholder="Display name">
+    <label><input id="newIsAdmin" type="checkbox"> Admin</label>
+    <button onclick="createStaff()">Add</button>
+  </div>
+
+  <div class="card">
+    <h2>All staff</h2>
+    <div id="staffTable"></div>
+  </div>
+</div>
+
+<script>
+let auth='';
+let staffList=[];
+
+async function login(){
+  auth='Basic '+btoa(document.getElementById('user').value+':'+document.getElementById('pass').value);
+  const r=await fetch('/api/staff/me',{headers:{Authorization:auth}});
+  if(!r.ok){document.getElementById('msg').textContent='Login failed';return;}
+  const me=await r.json();
+  if(!me.isAdmin){document.getElementById('msg').textContent='Logged in, but this account is not an admin.';return;}
+  document.getElementById('msg').textContent='Logged in as '+me.displayName;
+  document.getElementById('app').style.display='block';
+  loadStaff();
+}
+
+async function loadStaff(){
+  const r=await fetch('/api/admin/staff',{headers:{Authorization:auth}});
+  if(!r.ok){document.getElementById('msg').textContent=await r.text();return;}
+  staffList=await r.json();
+  renderTable();
+}
+
+function renderTable(){
+  document.getElementById('staffTable').innerHTML =
+    '<table><tr><th>Username</th><th>Display name</th><th>Active</th><th>Admin</th><th></th></tr>' +
+    staffList.map(s=>rowHtml(s)).join('') +
+    '</table>';
+}
+
+function rowHtml(s){
+  return `<tr id="row-${s.id}">
+    <td>${escapeHtml(s.username)}</td>
+    <td>${escapeHtml(s.displayName)}</td>
+    <td><span class="pill ${s.active?'pill-yes':'pill-no'}">${s.active?'Active':'Inactive'}</span></td>
+    <td><span class="pill ${s.isAdmin?'pill-yes':'pill-no'}">${s.isAdmin?'Admin':'Staff'}</span></td>
+    <td><button onclick="startEdit(${s.id})">Edit</button></td>
+  </tr>`;
+}
+
+function startEdit(id){
+  const s = staffList.find(x=>x.id===id);
+  const row = document.getElementById('row-'+id);
+  row.classList.add('row-edit');
+  row.innerHTML = `
+    <td>${escapeHtml(s.username)}</td>
+    <td><input id="edit-name-${id}" value="${escapeHtml(s.displayName)}"></td>
+    <td><label><input id="edit-active-${id}" type="checkbox" ${s.active?'checked':''}> Active</label></td>
+    <td><label><input id="edit-admin-${id}" type="checkbox" ${s.isAdmin?'checked':''}> Admin</label></td>
+    <td>
+      <input id="edit-pass-${id}" type="password" placeholder="New password (optional)">
+      <button onclick="saveEdit(${id})">Save</button>
+      <button onclick="renderTable()">Cancel</button>
+    </td>`;
+}
+
+async function saveEdit(id){
+  const body={
+    displayName: document.getElementById('edit-name-'+id).value.trim(),
+    active: document.getElementById('edit-active-'+id).checked,
+    isAdmin: document.getElementById('edit-admin-'+id).checked,
+    password: document.getElementById('edit-pass-'+id).value
+  };
+  const r=await fetch('/api/admin/staff/'+id,{method:'PUT',headers:{Authorization:auth,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  document.getElementById('msg').textContent=await r.text();
+  loadStaff();
+}
+
+async function createStaff(){
+  const body={
+    username: document.getElementById('newUsername').value.trim(),
+    password: document.getElementById('newPassword').value,
+    displayName: document.getElementById('newDisplayName').value.trim(),
+    isAdmin: document.getElementById('newIsAdmin').checked
+  };
+  const r=await fetch('/api/admin/staff',{method:'POST',headers:{Authorization:auth,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  document.getElementById('msg').textContent=await r.text();
+  if(r.ok){
+    document.getElementById('newUsername').value='';
+    document.getElementById('newPassword').value='';
+    document.getElementById('newDisplayName').value='';
+    document.getElementById('newIsAdmin').checked=false;
+    loadStaff();
+  }
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+</script>
+</body></html>
