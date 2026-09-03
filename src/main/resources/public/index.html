@@ -18,6 +18,8 @@
 <h1>Book an Appointment</h1>
 
 <div class="card">
+  <label>Service</label>
+  <select id="service"></select>
   <label>Staff</label>
   <select id="staff"></select>
   <label>Date</label>
@@ -41,8 +43,14 @@
 <div id="message"></div>
 
 <script>
-let selectedSlot=null, selectedStaff=null;
+let selectedSlot=null, selectedStaff=null, services=[];
 
+async function loadServices(){
+  const res=await fetch('/api/services');
+  services=await res.json();
+  const s=document.getElementById('service');
+  s.innerHTML=services.map(x=>`<option value="${x.id}">${escapeHtml(x.name)} (${x.durationMinutes} min)</option>`).join('');
+}
 async function loadStaff(){
   const res=await fetch('/api/staff');
   const data=await res.json();
@@ -61,11 +69,14 @@ async function loadSlots(){
 function selectSlot(slot){
   selectedSlot=slot;
   document.getElementById('booking').style.display='block';
-  document.getElementById('selected').textContent=`Selected: ${slot.startTime.slice(0,5)} - ${slot.endTime.slice(0,5)}`;
+  const svc=services.find(x=>String(x.id)===document.getElementById('service').value);
+  document.getElementById('selected').textContent=
+    `Selected: ${slot.startTime.slice(0,5)} - ${slot.endTime.slice(0,5)}` + (svc?` for ${svc.name}`:'');
 }
 async function book(){
   const body={
     slotId:selectedSlot.id,
+    serviceId:Number(document.getElementById('service').value),
     customerName:document.getElementById('name').value.trim(),
     customerPhone:document.getElementById('phone').value.trim()
   };
@@ -75,6 +86,7 @@ async function book(){
   if(res.ok){document.getElementById('booking').style.display='none';loadSlots();}
 }
 function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+loadServices();
 loadStaff();
 document.getElementById('date').value=new Date().toISOString().slice(0,10);
 </script>
