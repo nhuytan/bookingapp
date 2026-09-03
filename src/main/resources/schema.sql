@@ -7,9 +7,17 @@ CREATE TABLE IF NOT EXISTS staff (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS service (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    duration_minutes INT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
 CREATE TABLE IF NOT EXISTS schedule_slot (
     id BIGSERIAL PRIMARY KEY,
     staff_id BIGINT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+    service_id BIGINT REFERENCES service(id),
     slot_date DATE NOT NULL,
     start_time TIME NOT NULL,
     end_time TIME NOT NULL,
@@ -17,7 +25,7 @@ CREATE TABLE IF NOT EXISTS schedule_slot (
     customer_name VARCHAR(150),
     customer_phone VARCHAR(40),
     booked_at TIMESTAMPTZ,
-    CONSTRAINT schedule_slot_status_ck CHECK (status IN ('open', 'booked')),
+    CONSTRAINT schedule_slot_status_ck CHECK (status IN ('open', 'booked', 'blocked')),
     CONSTRAINT schedule_slot_time_ck CHECK (end_time > start_time)
 );
 
@@ -29,3 +37,10 @@ ON schedule_slot(staff_id, slot_date);
 
 CREATE INDEX IF NOT EXISTS ix_slot_status
 ON schedule_slot(status);
+
+-- Safe migrations: run every startup, no-op if already applied.
+-- Needed if this schema.sql is replacing one deployed before the service/blocked-status feature.
+ALTER TABLE schedule_slot ADD COLUMN IF NOT EXISTS service_id BIGINT REFERENCES service(id);
+
+ALTER TABLE schedule_slot DROP CONSTRAINT IF EXISTS schedule_slot_status_ck;
+ALTER TABLE schedule_slot ADD CONSTRAINT schedule_slot_status_ck CHECK (status IN ('open', 'booked', 'blocked'));
