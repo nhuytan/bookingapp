@@ -22,6 +22,21 @@ public class Api {
         return Response.ok(out).build();
     }
 
+    @GET @Path("/services")
+    public Response services() throws Exception {
+        List<Map<String,Object>> out = new ArrayList<>();
+        try (Connection c=Database.pool().getConnection();
+             PreparedStatement p=c.prepareStatement(
+                 "SELECT id,name,duration_minutes FROM service WHERE active=true ORDER BY name");
+             ResultSet r=p.executeQuery()) {
+            while(r.next()) out.add(Map.of(
+                "id",r.getLong("id"),
+                "name",r.getString("name"),
+                "durationMinutes",r.getInt("duration_minutes")));
+        }
+        return Response.ok(out).build();
+    }
+
     @GET @Path("/staff/{id}/slots")
     public Response publicSlots(@PathParam("id") long staffId,@QueryParam("date") String date) throws Exception {
         LocalDate d = LocalDate.parse(date);
@@ -31,8 +46,8 @@ public class Api {
     @POST @Path("/bookings")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response book(BookingRequest req) throws Exception {
-        if(req==null || req.slotId()<=0 || blank(req.customerName()) || blank(req.customerPhone()))
-            return Response.status(400).entity("slotId, customerName and customerPhone are required").build();
+        if(req==null || req.slotId()<=0 || req.serviceId()<=0 || blank(req.customerName()) || blank(req.customerPhone()))
+            return Response.status(400).entity("slotId, serviceId, customerName and customerPhone are required").build();
 
         try(Connection c=Database.pool().getConnection()) {
             c.setAutoCommit(false);
@@ -46,13 +61,21 @@ public class Api {
                     }
                 }
             }
+            try(PreparedStatement p=c.prepareStatement(
+                    "SELECT id FROM service WHERE id=? AND active=true")) {
+                p.setLong(1,req.serviceId());
+                try(ResultSet r=p.executeQuery()) {
+                    if(!r.next()) { c.rollback(); return Response.status(400).entity("Service not found").build(); }
+                }
+            }
             long bookingId;
             try(PreparedStatement p=c.prepareStatement(
-                    "UPDATE schedule_slot SET status='booked',customer_name=?,customer_phone=?,booked_at=CURRENT_TIMESTAMP WHERE id=?",
+                    "UPDATE schedule_slot SET status='booked',service_id=?,customer_name=?,customer_phone=?,booked_at=CURRENT_TIMESTAMP WHERE id=?",
                     Statement.RETURN_GENERATED_KEYS)) {
-                p.setString(1,req.customerName().trim());
-                p.setString(2,req.customerPhone().trim());
-                p.setLong(3,req.slotId());
+                p.setLong(1,req.serviceId());
+                p.setString(2,req.customerName().trim());
+                p.setString(3,req.customerPhone().trim());
+                p.setLong(4,req.slotId());
                 p.executeUpdate();
                 bookingId=req.slotId();
             }
@@ -83,7 +106,7 @@ public class Api {
         try(Connection c=Database.pool().getConnection();
             PreparedStatement p=c.prepareStatement(
                 "INSERT INTO schedule_slot(staff_id,slot_date,start_time,end_time) VALUES(?,?,?,?) RETURNING id")) {
-            p.setLong(1,s.id()); p.setDate(2,java.sql.Date.valueOf(req.slotDate()));
+            p.setLong(1,s.id()); p.setDate(2, java.sql.Date.valueOf(req.slotDate()));
             p.setTime(3,Time.valueOf(req.startTime())); p.setTime(4,Time.valueOf(req.endTime()));
             try(ResultSet r=p.executeQuery()){r.next(); return Response.status(201).entity(Map.of("id",r.getLong(1))).build();}
         } catch(SQLException e) {
@@ -97,10 +120,34 @@ public class Api {
         Auth.Staff s=Auth.require(headers);
         try(Connection c=Database.pool().getConnection();
             PreparedStatement p=c.prepareStatement(
-                "DELETE FROM schedule_slot WHERE id=? AND staff_id=? AND status='open'")) {
+                "DELETE FROM schedule_slot WHERE id=? AND staff_id=? AND status IN ('open','blocked')")) {
             p.setLong(1,id); p.setLong(2,s.id());
             if(p.executeUpdate()==0) return Response.status(409).entity("Slot not found, not yours, or already booked").build();
             return Response.noContent().build();
+        }
+    }
+
+    @POST @Path("/staff/slots/{id}/block")
+    public Response blockSlot(@Context HttpHeaders headers,@PathParam("id") long id) throws Exception {
+        Auth.Staff s=Auth.require(headers);
+        try(Connection c=Database.pool().getConnection();
+            PreparedStatement p=c.prepareStatement(
+                "UPDATE schedule_slot SET status='blocked' WHERE id=? AND staff_id=? AND status='open'")) {
+            p.setLong(1,id); p.setLong(2,s.id());
+            if(p.executeUpdate()==0) return Response.status(409).entity("Slot not found, not yours, or not open").build();
+            return Response.ok(Map.of("message","Slot blocked")).build();
+        }
+    }
+
+    @POST @Path("/staff/slots/{id}/unblock")
+    public Response unblockSlot(@Context HttpHeaders headers,@PathParam("id") long id) throws Exception {
+        Auth.Staff s=Auth.require(headers);
+        try(Connection c=Database.pool().getConnection();
+            PreparedStatement p=c.prepareStatement(
+                "UPDATE schedule_slot SET status='open' WHERE id=? AND staff_id=? AND status='blocked'")) {
+            p.setLong(1,id); p.setLong(2,s.id());
+            if(p.executeUpdate()==0) return Response.status(409).entity("Slot not found, not yours, or not blocked").build();
+            return Response.ok(Map.of("message","Slot unblocked")).build();
         }
     }
 
@@ -109,7 +156,7 @@ public class Api {
         Auth.Staff s=Auth.require(headers);
         try(Connection c=Database.pool().getConnection();
             PreparedStatement p=c.prepareStatement(
-                "UPDATE schedule_slot SET status='open',customer_name=NULL,customer_phone=NULL,booked_at=NULL " +
+                "UPDATE schedule_slot SET status='open',service_id=NULL,customer_name=NULL,customer_phone=NULL,booked_at=NULL " +
                 "WHERE id=? AND staff_id=? AND status='booked'")) {
             p.setLong(1,id); p.setLong(2,s.id());
             if(p.executeUpdate()==0) return Response.status(404).entity("Booked slot not found").build();
@@ -119,16 +166,19 @@ public class Api {
 
     private List<Map<String,Object>> readSlots(long staffId,LocalDate date,String extra) throws Exception {
         List<Map<String,Object>> out=new ArrayList<>();
-        String sql="SELECT id,start_time,end_time,status,customer_name,customer_phone FROM schedule_slot WHERE staff_id=? AND slot_date=?"+
-                (extra==null?"":" AND "+extra)+" ORDER BY start_time";
+        String sql="SELECT sl.id,sl.start_time,sl.end_time,sl.status,sl.customer_name,sl.customer_phone,sv.name AS service_name " +
+                "FROM schedule_slot sl LEFT JOIN service sv ON sv.id=sl.service_id " +
+                "WHERE sl.staff_id=? AND sl.slot_date=?"+
+                (extra==null?"":" AND sl."+extra)+" ORDER BY sl.start_time";
         try(Connection c=Database.pool().getConnection(); PreparedStatement p=c.prepareStatement(sql)){
-            p.setLong(1,staffId);p.setDate(2,java.sql.Date.valueOf(date));
+            p.setLong(1,staffId);p.setDate(2, java.sql.Date.valueOf(date));
             try(ResultSet r=p.executeQuery()){
                 while(r.next()){
                     Map<String,Object> m=new LinkedHashMap<>();
                     m.put("id",r.getLong("id"));m.put("startTime",r.getTime("start_time").toString());
                     m.put("endTime",r.getTime("end_time").toString());m.put("status",r.getString("status"));
                     m.put("customerName",r.getString("customer_name"));m.put("customerPhone",r.getString("customer_phone"));
+                    m.put("serviceName",r.getString("service_name"));
                     out.add(m);
                 }
             }
@@ -137,6 +187,6 @@ public class Api {
     }
     private static boolean blank(String s){return s==null||s.isBlank();}
 
-    public record BookingRequest(long slotId,String customerName,String customerPhone){}
+    public record BookingRequest(long slotId,long serviceId,String customerName,String customerPhone){}
     public record SlotRequest(LocalDate slotDate,String startTime,String endTime){}
 }
