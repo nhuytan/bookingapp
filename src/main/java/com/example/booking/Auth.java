@@ -28,7 +28,7 @@ public final class Auth {
 
         try (Connection c = Database.pool().getConnection();
              PreparedStatement ps = c.prepareStatement(
-                     "SELECT id,username,password_hash,display_name,active FROM staff WHERE username=?")) {
+                     "SELECT id,username,password_hash,display_name,active,is_admin FROM staff WHERE username=?")) {
             ps.setString(1, username);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next() || !rs.getBoolean("active")
@@ -36,11 +36,18 @@ public final class Auth {
                     throw new UnauthorizedException();
                 }
                 return new Staff(rs.getLong("id"), rs.getString("username"),
-                        rs.getString("display_name"));
+                        rs.getString("display_name"), rs.getBoolean("is_admin"));
             }
         }
     }
 
-    public record Staff(long id, String username, String displayName) {}
+    public static Staff requireAdmin(HttpHeaders headers) throws Exception {
+        Staff s = require(headers);
+        if (!s.isAdmin()) throw new ForbiddenException();
+        return s;
+    }
+
+    public record Staff(long id, String username, String displayName, boolean isAdmin) {}
     public static class UnauthorizedException extends RuntimeException {}
+    public static class ForbiddenException extends RuntimeException {}
 }
