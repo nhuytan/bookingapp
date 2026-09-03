@@ -5,7 +5,7 @@ import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 
 @Provider
-class Errors implements ExceptionMapper<Auth.UnauthorizedException> {
+public class Errors implements ExceptionMapper<Auth.UnauthorizedException> {
     public Response toResponse(Auth.UnauthorizedException e) {
         return Response.status(Response.Status.UNAUTHORIZED)
                 .header(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"Staff\"")
