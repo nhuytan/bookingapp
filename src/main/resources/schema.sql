@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS staff (
     password_hash VARCHAR(100) NOT NULL,
     display_name VARCHAR(150) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -39,8 +40,9 @@ CREATE INDEX IF NOT EXISTS ix_slot_status
 ON schedule_slot(status);
 
 -- Safe migrations: run every startup, no-op if already applied.
--- Needed if this schema.sql is replacing one deployed before the service/blocked-status feature.
 ALTER TABLE schedule_slot ADD COLUMN IF NOT EXISTS service_id BIGINT REFERENCES service(id);
 
 ALTER TABLE schedule_slot DROP CONSTRAINT IF EXISTS schedule_slot_status_ck;
 ALTER TABLE schedule_slot ADD CONSTRAINT schedule_slot_status_ck CHECK (status IN ('open', 'booked', 'blocked'));
+
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
