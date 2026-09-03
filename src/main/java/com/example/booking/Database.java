@@ -56,7 +56,7 @@ public final class Database {
             String hash = BCrypt.hashpw(password, BCrypt.gensalt(12));
             try (Connection c = pool().getConnection();
                  PreparedStatement ps = c.prepareStatement(
-                         "INSERT INTO staff(username,password_hash,display_name) VALUES(?,?,?) " +
+                         "INSERT INTO staff(username,password_hash,display_name,is_admin) VALUES(?,?,?,true) " +
                          "ON CONFLICT (username) DO NOTHING")) {
                 ps.setString(1, username);
                 ps.setString(2, hash);
