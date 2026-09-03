@@ -2,10 +2,11 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staff</title>
 <style>body{font-family:Arial;max-width:950px;margin:35px auto;padding:0 18px}.card{border:1px solid #ddd;border-radius:12px;padding:18px;margin:12px 0}input,button{padding:9px;margin:4px}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}
-.status-open{color:#0a0}.status-booked{color:#06c}.status-blocked{color:#999}</style>
+.status-open{color:#0a0}.status-booked{color:#06c}.status-blocked{color:#999}
+#adminLink{float:right}</style>
 </head>
 <body>
-<h1>Staff Schedule</h1>
+<h1>Staff Schedule <a id="adminLink" href="/admin" style="display:none">Admin panel &rarr;</a></h1>
 <div class="card">
 <input id="user" placeholder="Username">
 <input id="pass" type="password" placeholder="Password">
@@ -25,8 +26,10 @@ async function login(){
   auth='Basic '+btoa(document.getElementById('user').value+':'+document.getElementById('pass').value);
   const r=await fetch('/api/staff/me',{headers:{Authorization:auth}});
   if(!r.ok){document.getElementById('msg').textContent='Login failed';return;}
+  const me=await r.json();
   document.getElementById('msg').textContent='Logged in';
   document.getElementById('app').style.display='block';
+  if(me.isAdmin) document.getElementById('adminLink').style.display='inline';
   document.getElementById('date').value=new Date().toISOString().slice(0,10);
   loadSlots();
 }
