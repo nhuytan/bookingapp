@@ -2,6 +2,7 @@ package com.example.booking;
 
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.*;
+import org.mindrot.jbcrypt.BCrypt;
 
 import java.sql.*;
 import java.time.LocalDate;
@@ -164,6 +165,75 @@ public class Api {
         }
     }
 
+    // ---- Admin: staff management ----
+
+    @GET @Path("/admin/staff")
+    public Response listStaff(@Context HttpHeaders headers) throws Exception {
+        Auth.requireAdmin(headers);
+        List<Map<String,Object>> out = new ArrayList<>();
+        try (Connection c=Database.pool().getConnection();
+             PreparedStatement p=c.prepareStatement(
+                 "SELECT id,username,display_name,active,is_admin FROM staff ORDER BY id");
+             ResultSet r=p.executeQuery()) {
+            while(r.next()) out.add(Map.of(
+                "id",r.getLong("id"),
+                "username",r.getString("username"),
+                "displayName",r.getString("display_name"),
+                "active",r.getBoolean("active"),
+                "isAdmin",r.getBoolean("is_admin")));
+        }
+        return Response.ok(out).build();
+    }
+
+    @POST @Path("/admin/staff")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response createStaff(@Context HttpHeaders headers, NewStaffRequest req) throws Exception {
+        Auth.requireAdmin(headers);
+        if(req==null || blank(req.username()) || blank(req.password()) || blank(req.displayName()))
+            return Response.status(400).entity("username, password and displayName are required").build();
+        String hash = BCrypt.hashpw(req.password(), BCrypt.gensalt(12));
+        try(Connection c=Database.pool().getConnection();
+            PreparedStatement p=c.prepareStatement(
+                "INSERT INTO staff(username,password_hash,display_name,is_admin) VALUES(?,?,?,?) RETURNING id")) {
+            p.setString(1,req.username().trim());
+            p.setString(2,hash);
+            p.setString(3,req.displayName().trim());
+            p.setBoolean(4,req.isAdmin());
+            try(ResultSet r=p.executeQuery()){r.next(); return Response.status(201).entity(Map.of("id",r.getLong(1))).build();}
+        } catch(SQLException e) {
+            if("23505".equals(e.getSQLState())) return Response.status(409).entity("That username already exists").build();
+            throw e;
+        }
+    }
+
+    @PUT @Path("/admin/staff/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response updateStaff(@Context HttpHeaders headers, @PathParam("id") long id, UpdateStaffRequest req) throws Exception {
+        Auth.requireAdmin(headers);
+        if(req==null || blank(req.displayName()))
+            return Response.status(400).entity("displayName is required").build();
+
+        boolean resetPassword = req.password()!=null && !req.password().isBlank();
+        String sql = resetPassword
+            ? "UPDATE staff SET display_name=?,active=?,is_admin=?,password_hash=? WHERE id=?"
+            : "UPDATE staff SET display_name=?,active=?,is_admin=? WHERE id=?";
+
+        try(Connection c=Database.pool().getConnection();
+            PreparedStatement p=c.prepareStatement(sql)) {
+            p.setString(1,req.displayName().trim());
+            p.setBoolean(2,req.active());
+            p.setBoolean(3,req.isAdmin());
+            if(resetPassword) {
+                p.setString(4, BCrypt.hashpw(req.password(), BCrypt.gensalt(12)));
+                p.setLong(5,id);
+            } else {
+                p.setLong(4,id);
+            }
+            if(p.executeUpdate()==0) return Response.status(404).entity("Staff not found").build();
+            return Response.ok(Map.of("message","Staff updated")).build();
+        }
+    }
+
     private List<Map<String,Object>> readSlots(long staffId,LocalDate date,String extra) throws Exception {
         List<Map<String,Object>> out=new ArrayList<>();
         String sql="SELECT sl.id,sl.start_time,sl.end_time,sl.status,sl.customer_name,sl.customer_phone,sv.name AS service_name " +
@@ -189,4 +259,6 @@ public class Api {
 
     public record BookingRequest(long slotId,long serviceId,String customerName,String customerPhone){}
     public record SlotRequest(LocalDate slotDate,String startTime,String endTime){}
+    public record NewStaffRequest(String username,String password,String displayName,boolean isAdmin){}
+    public record UpdateStaffRequest(String displayName,boolean active,boolean isAdmin,String password){}
 }
