@@ -83,7 +83,7 @@ public class Api {
         try(Connection c=Database.pool().getConnection();
             PreparedStatement p=c.prepareStatement(
                 "INSERT INTO schedule_slot(staff_id,slot_date,start_time,end_time) VALUES(?,?,?,?) RETURNING id")) {
-            p.setLong(1,s.id()); p.setDate(2,Date.valueOf(req.slotDate()));
+            p.setLong(1,s.id()); p.setDate(2,java.sql.Date.valueOf(req.slotDate()));
             p.setTime(3,Time.valueOf(req.startTime())); p.setTime(4,Time.valueOf(req.endTime()));
             try(ResultSet r=p.executeQuery()){r.next(); return Response.status(201).entity(Map.of("id",r.getLong(1))).build();}
         } catch(SQLException e) {
@@ -122,7 +122,7 @@ public class Api {
         String sql="SELECT id,start_time,end_time,status,customer_name,customer_phone FROM schedule_slot WHERE staff_id=? AND slot_date=?"+
                 (extra==null?"":" AND "+extra)+" ORDER BY start_time";
         try(Connection c=Database.pool().getConnection(); PreparedStatement p=c.prepareStatement(sql)){
-            p.setLong(1,staffId);p.setDate(2,Date.valueOf(date));
+            p.setLong(1,staffId);p.setDate(2,java.sql.Date.valueOf(date));
             try(ResultSet r=p.executeQuery()){
                 while(r.next()){
                     Map<String,Object> m=new LinkedHashMap<>();
